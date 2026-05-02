@@ -1,0 +1,8 @@
+services:
+  podcast-rss:
+    build: .
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./podcasts:/app/podcasts:ro
+    restart: unless-stopped
