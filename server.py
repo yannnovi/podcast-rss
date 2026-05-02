@@ -64,7 +64,7 @@ def generate_rss(base_url):
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         host = self.headers.get("Host", f"localhost:{PORT}")
-        base_url = f"https://{host}"
+        base_url = f"https://{host}:10666"
 
         if self.path in ("/", "/feed.rss"):
             body = generate_rss(base_url).encode("utf-8")
