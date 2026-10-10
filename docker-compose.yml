@@ -1,6 +1,10 @@
 services:
   podcast-rss:
-    build: .
+    build:
+      context: .
+      args:
+        VERSION: "1.2.0"
+    image: podcast-rss:1.2.0
     ports:
       - "8888:8888"
     volumes:
