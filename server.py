@@ -11,9 +11,9 @@ COVER_PATH = "/cover.jpg"
 PORT = 8888
 PUBLIC_PORT = 10666  # port exposé par le reverse proxy
 MEDIA_TYPES = {".mp3": "audio/mpeg", ".jpg": "image/jpeg"}  # fichiers servis depuis podcasts/
-FEED_TITLE = "Razorcake podcasts"
+FEED_TITLE = "Razorcake podcast"
 
-FEED_DESCRIPTION = "Razorcake podcasts feed. All the razorcake podcasts are available through this feed."
+FEED_DESCRIPTION = "Razorcake podcast feed. All the razorcake podcasts are available through this feed."
 CHUNK_SIZE = 64 * 1024  # 64 KB
 
 
