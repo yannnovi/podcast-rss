@@ -1,5 +1,5 @@
 FROM python:3.12-slim
-ARG VERSION=1.2.1
+ARG VERSION=1.3.1
 LABEL org.opencontainers.image.title="podcast-rss" \
       org.opencontainers.image.version="${VERSION}"
 WORKDIR /app
