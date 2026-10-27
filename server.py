@@ -14,6 +14,7 @@ MEDIA_TYPES = {".mp3": "audio/mpeg", ".jpg": "image/jpeg"}  # fichiers servis de
 FEED_TITLE = "Razorcake podcast"
 
 FEED_DESCRIPTION = "Razorcake podcast feed. All the razorcake podcasts are available through this feed."
+NEW_FEED_URL = "https://zorgul.com:10666/"  # itunes:new-feed-url, adresse définitive du flux
 CHUNK_SIZE = 64 * 1024  # 64 KB
 
 
@@ -23,12 +24,16 @@ def get_episodes():
         desc_file = mp3.with_suffix(".desc")
         description = desc_file.read_text(encoding="utf-8").strip() if desc_file.exists() else ""
         image_file = mp3.with_suffix(".jpg")
+        # GUID de l'ancien flux (PowerPress), pour que les applis ne voient pas l'épisode en double
+        guid_file = mp3.with_suffix(".guid")
+        guid = guid_file.read_text(encoding="utf-8").strip() if guid_file.exists() else None
         stat = mp3.stat()
         created = getattr(stat, "st_birthtime", stat.st_mtime)
         episodes.append({
             "title": mp3.stem.replace("_", " ").title(),
             "filename": mp3.name,
             "image": image_file.name if image_file.exists() else None,
+            "guid": guid,
             "description": description,
             "created": created,
             "size": stat.st_size,
@@ -49,6 +54,7 @@ def generate_rss(base_url):
         f"  <description>{saxutils.escape(FEED_DESCRIPTION)}</description>",
         f"  <link>{saxutils.escape(base_url)}</link>",
         f"  <lastBuildDate>{formatdate()}</lastBuildDate>",
+        f"  <itunes:new-feed-url>{saxutils.escape(NEW_FEED_URL)}</itunes:new-feed-url>",
     ]
     if COVER_IMAGE.exists():
         cover_url = saxutils.escape(f"{base_url}{COVER_PATH}")
@@ -64,12 +70,13 @@ def generate_rss(base_url):
         pub_date = formatdate(ep["created"])
         file_url = f"{base_url}/podcasts/{ep['filename']}"
         first_line = ep["description"].splitlines()[0] if ep["description"] else ep["title"]
+        guid = ep["guid"] or file_url
         lines += [
             "  <item>",
             f"    <title>{saxutils.escape(ep['title'])}</title>",
             f"    <description><![CDATA[{ep['description']}]]></description>",
             f"    <pubDate>{pub_date}</pubDate>",
-            f"    <guid isPermaLink=\"false\">{saxutils.escape(file_url)}</guid>",
+            f"    <guid isPermaLink=\"false\">{saxutils.escape(guid)}</guid>",
             f'    <enclosure url="{saxutils.escape(file_url)}" length="{ep["size"]}" type="audio/mpeg"/>',
             f"    <itunes:summary>{saxutils.escape(first_line)}</itunes:summary>",
         ]
