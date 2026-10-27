@@ -2,7 +2,7 @@
 import os
 import xml.sax.saxutils as saxutils
 from email.utils import formatdate
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
 PODCASTS_DIR = Path("podcasts")
@@ -15,6 +15,12 @@ FEED_TITLE = "Razorcake podcast"
 
 FEED_DESCRIPTION = "Razorcake podcast feed. All the razorcake podcasts are available through this feed."
 NEW_FEED_URL = "https://zorgul.com:10666/"  # itunes:new-feed-url, adresse définitive du flux
+FEED_LANGUAGE = "en-us"
+FEED_AUTHOR = "Razorcake"
+FEED_OWNER_NAME = "Yann Bourdeau"
+FEED_OWNER_EMAIL = "yann.bourdeau@pm.me"  # sert à Apple pour vérifier le propriétaire du flux
+FEED_CATEGORY = "Music"  # catégorie Apple Podcasts
+FEED_EXPLICIT = "true"  # "true" ou "false"
 CHUNK_SIZE = 64 * 1024  # 64 KB
 
 
@@ -55,6 +61,15 @@ def generate_rss(base_url):
         f"  <link>{saxutils.escape(base_url)}</link>",
         f"  <lastBuildDate>{formatdate()}</lastBuildDate>",
         f"  <itunes:new-feed-url>{saxutils.escape(NEW_FEED_URL)}</itunes:new-feed-url>",
+        f"  <language>{FEED_LANGUAGE}</language>",
+        f"  <itunes:author>{saxutils.escape(FEED_AUTHOR)}</itunes:author>",
+        "  <itunes:owner>",
+        f"    <itunes:name>{saxutils.escape(FEED_OWNER_NAME)}</itunes:name>",
+        f"    <itunes:email>{saxutils.escape(FEED_OWNER_EMAIL)}</itunes:email>",
+        "  </itunes:owner>",
+        f'  <itunes:category text="{saxutils.escape(FEED_CATEGORY)}"/>',
+        f"  <itunes:explicit>{FEED_EXPLICIT}</itunes:explicit>",
+        "  <itunes:type>episodic</itunes:type>",
     ]
     if COVER_IMAGE.exists():
         cover_url = saxutils.escape(f"{base_url}{COVER_PATH}")
@@ -86,6 +101,30 @@ def generate_rss(base_url):
         lines.append("  </item>")
     lines += ["</channel>", "</rss>"]
     return "\n".join(lines)
+
+
+def parse_range(header, size):
+    """Analyse un en-tête « Range: bytes=début-fin ».
+
+    Retourne (début, fin) inclus, None sans en-tête (ou si non géré, ex. plusieurs plages),
+    ou "invalid" si la plage est hors du fichier (réponse 416).
+    """
+    if not header or not header.startswith("bytes=") or "," in header:
+        return None
+    start_s, _, end_s = header[len("bytes="):].strip().partition("-")
+    try:
+        if start_s == "":  # bytes=-500 : les 500 derniers octets
+            suffix = int(end_s)
+            if suffix == 0:
+                return "invalid"
+            return max(size - suffix, 0), size - 1
+        start = int(start_s)
+        end = int(end_s) if end_s else size - 1
+    except ValueError:
+        return None
+    if start >= size or end < start:
+        return "invalid"
+    return start, min(end, size - 1)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -121,13 +160,7 @@ class Handler(BaseHTTPRequestHandler):
             # Refuse les chemins qui sortent du répertoire podcasts (ex. ../)
             in_podcasts_dir = filepath.resolve().parent == PODCASTS_DIR.resolve()
             if content_type and in_podcasts_dir and filepath.is_file():
-                self.send_response(200)
-                self.send_header("Content-Type", content_type)
-                self.send_header("Content-Length", str(filepath.stat().st_size))
-                self.end_headers()
-                with open(filepath, "rb") as f:
-                    while chunk := f.read(CHUNK_SIZE):
-                        self.wfile.write(chunk)
+                self.send_file(filepath, content_type)
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -136,12 +169,42 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
+    def send_file(self, filepath, content_type):
+        """Envoie un fichier, en entier ou la plage demandée par l'en-tête Range (206)."""
+        size = filepath.stat().st_size
+        byte_range = parse_range(self.headers.get("Range"), size)
+        if byte_range == "invalid":
+            self.send_response(416)
+            self.send_header("Content-Range", f"bytes */{size}")
+            self.end_headers()
+            return
+        start, end = byte_range or (0, size - 1)
+        length = end - start + 1
+
+        self.send_response(206 if byte_range else 200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(length))
+        if byte_range:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.end_headers()
+
+        try:
+            with open(filepath, "rb") as f:
+                f.seek(start)
+                remaining = length
+                while remaining > 0 and (chunk := f.read(min(CHUNK_SIZE, remaining))):
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # le lecteur a fermé la connexion (avance rapide, pause) : normal
+
     def log_message(self, fmt, *args):
         print(f"[{self.address_string()}] {fmt % args}")
 
 
 if __name__ == "__main__":
-    server = HTTPServer(("", PORT), Handler)
+    server = ThreadingHTTPServer(("", PORT), Handler)
     print(f"RSS feed   → http://localhost:{PORT}/feed.rss")
     print(f"Podcasts   → {PODCASTS_DIR.absolute()}")
     print("Ctrl+C to stop.")
